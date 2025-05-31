@@ -33,7 +33,7 @@ jobs:
     - name: Update version in setup.py
       run: |
         VERSION_TAG=${{ steps.get_version.outputs.VERSION }}
-        sed -i "s/version="[^"]*"/version="${VERSION_TAG}""/" setup.py
+        sed -i "s/version=\"[^\"]*\"/version=\"${VERSION_TAG}\"/" setup.py
         echo "Updated setup.py to version $VERSION_TAG for build:"
         cat setup.py
 
