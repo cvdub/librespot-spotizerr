@@ -1,16 +1,10 @@
 # librespot-spotizerr
 
-Open Source Spotify Client
+Spotizerr's librespot python integration
 
 ## About The Project
 
 This project is to further add more features for the spotizerr project, forked from [librespot-python](https://github.com/Xoconoch/librespot-spotizerr)
-
-## Note
-
-It is still in the idea stage, so there is a possibility of unintended behavior
-or major specification changes.<br>
-We **DO NOT** encourage piracy and **DO NOT** support any form of downloader/recorder designed with the help of this repository and in general anything that goes against the Spotify ToS.<br>
 
 ## Getting Started
 
