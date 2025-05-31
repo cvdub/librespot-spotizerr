@@ -21,10 +21,14 @@ jobs:
     - name: Get version from tag
       id: get_version
       run: |
-        # Strip 'v' prefix if present
-        VERSION_TAG="${GITHUB_REF_NAME#v}"
-        echo "VERSION=$VERSION_TAG" >> $GITHUB_OUTPUT
-        echo "Using version for build: $VERSION_TAG"
+        echo "Original GITHUB_REF_NAME: ${GITHUB_REF_NAME}"
+        # Extract actual tag from ref (e.g., refs/tags/v1.2.3 -> v1.2.3 or 1.2.3)
+        TAG_FROM_REF="${GITHUB_REF_NAME##*/}"
+        echo "Extracted tag from ref: $TAG_FROM_REF"
+        # Strip 'v' prefix if present (e.g., v1.2.3 -> 1.2.3)
+        FINAL_VERSION="${TAG_FROM_REF#v}"
+        echo "Final version for build: $FINAL_VERSION"
+        echo "VERSION=$FINAL_VERSION" >> $GITHUB_OUTPUT
 
     - name: Update version in setup.py
       run: |
