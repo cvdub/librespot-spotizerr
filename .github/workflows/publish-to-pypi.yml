@@ -33,14 +33,14 @@ jobs:
     - name: Update version in setup.py
       run: |
         VERSION_TAG="${{ steps.get_version.outputs.VERSION }}"
-        sed -i "s/\\\\(version *= *[\\\\\\"']\\\\)[^\\\\\\"']*\([\\\\\\"']\\\\)/\\\\1$VERSION_TAG\\\\2/" setup.py
+        sed -i "s/version="[^"]*"/version="${VERSION_TAG}""/" setup.py
         echo "Updated setup.py to version $VERSION_TAG for build:"
         cat setup.py
 
     - name: Update version in librespot/__init__.py
       run: |
         VERSION_TAG="${{ steps.get_version.outputs.VERSION }}"
-        sed -i "s/\\\\(version_name *= *[\\\\\\"']\\\\)[^\\\\\\"']*\([\\\\\\"']\\\\)/\\\\1$VERSION_TAG\\\\2/" librespot/__init__.py
+        sed -i "s/version_name = \".*\"/version_name = \"${VERSION_TAG}\"/" librespot/__init__.py
         echo "Updated librespot/__init__.py to version $VERSION_TAG for build:"
         cat librespot/__init__.py
 
