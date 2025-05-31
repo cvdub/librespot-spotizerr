@@ -1,6 +1,6 @@
 import setuptools
 
-setuptools.setup(name="librespot",
+setuptools.setup(name="librespot-spotizerr",
                  version="0.1.0",
                  description="Spotizerr's python librespot implementation",
                  long_description=open("README.md").read(),
