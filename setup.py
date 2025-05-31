@@ -25,5 +25,5 @@ setuptools.setup(name="librespot-spotizerr",
                  classifiers=[
                      "Development Status :: 1 - Planning",
                      # "License :: OSI Approved :: Apache Software License", # Removed
-                     "Topic :: Multimedia :: Sound/Audi o"
+                     "Topic :: Multimedia :: Sound/Audio"
                  ])
