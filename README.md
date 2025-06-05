@@ -17,10 +17,10 @@ This project is to further add more features for the spotizerr project, forked f
 Stable Version
 
 ```commandline
-pip install librespot
+pip install librespot-spotizerr
 ```
 
-Snapshot Version \***Recommended**
+Snapshot Version \***Not recommended**
 
 ```commandline
 pip install git+https://github.com/Xoconoch/librespot-spotizerr
