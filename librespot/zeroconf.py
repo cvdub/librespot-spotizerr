@@ -23,6 +23,8 @@ import zeroconf
 
 class ZeroconfServer(Closeable):
     logger = logging.getLogger("Librespot:ZeroconfServer")
+    logger.propagate = False
+    
     service = "_spotify-connect._tcp.local."
     __connecting_username: typing.Union[str, None] = None
     __connection_lock = threading.Condition()
@@ -65,7 +67,9 @@ class ZeroconfServer(Closeable):
             listen_port = random.randint(self.__min_port + 1, self.__max_port)
         self.__runner = ZeroconfServer.HttpRunner(self, listen_port)
         threading.Thread(target=self.__runner.run,
-                         name="zeroconf-http-server").start()
+                         name="zeroconf-http-server",
+                         daemon=True).start()
+                         
         self.__zeroconf = zeroconf.Zeroconf()
         
         advertised_ip_str = self._get_local_ip()
@@ -120,7 +124,7 @@ class ZeroconfServer(Closeable):
                 hostname = socket.gethostname()
                 # gethostbyname can return 127.0.0.1 if hostname resolves to it
                 ip_address = socket.gethostbyname(hostname)
-                self.logger.info(f"IP from socket.gethostbyname('{hostname}'): {ip_address}")
+                self.logger.info(f"IP from socket.gethostname('{hostname}'): {ip_address}")
             except socket.gaierror:
                 self.logger.error(
                     f"socket.gaierror resolving hostname '{socket.gethostname()}'. Falling back to 0.0.0.0."
