@@ -80,33 +80,27 @@ class ApiClient(Closeable):
         headers: typing.Union[None, typing.Dict[str, str]],
         body: typing.Union[None, bytes],
     ) -> requests.PreparedRequest:
-        """
-
-        :param method: str:
-        :param suffix: str:
-        :param headers: typing.Union[None:
-        :param typing.Dict[str:
-        :param str]]:
-        :param body: typing.Union[None:
-        :param bytes]:
-
-        """
         if self.__client_token_str is None:
             resp = self.__client_token()
             self.__client_token_str = resp.granted_token.token
-            self.logger.debug("Updated client token: {}".format(
-                self.__client_token_str))
+            self.logger.debug("Updated client token: {}".format(self.__client_token_str))
 
         request = requests.PreparedRequest()
         request.method = method
         request.data = body
-        request.headers = {}
-        if headers is not None:
-            request.headers = headers
+        request.headers = headers.copy() if headers else {}
         request.headers["Authorization"] = "Bearer {}".format(
-            self.__session.tokens().get("playlist-read"))
+            self.__session.tokens().get("playlist-read")
+        )
         request.headers["client-token"] = self.__client_token_str
-        request.url = self.__base_url + suffix
+
+        # Force metadata requests to use a specific host
+        if suffix.startswith("/metadata/4/"):
+            base_url = "https://spclient.wg.spotify.com"
+        else:
+            base_url = self.__base_url
+
+        request.url = base_url + suffix
         return request
 
     def send(
@@ -116,29 +110,12 @@ class ApiClient(Closeable):
         headers: typing.Union[None, typing.Dict[str, str]],
         body: typing.Union[None, bytes],
     ) -> requests.Response:
-        """
-
-        :param method: str:
-        :param suffix: str:
-        :param headers: typing.Union[None:
-        :param typing.Dict[str:
-        :param str]]:
-        :param body: typing.Union[None:
-        :param bytes]:
-
-        """
         response = self.__session.client().send(
-            self.build_request(method, suffix, headers, body))
+            self.build_request(method, suffix, headers, body)
+        )
         return response
 
-    def put_connect_state(self, connection_id: str,
-                          proto: Connect.PutStateRequest) -> None:
-        """
-
-        :param connection_id: str:
-        :param proto: Connect.PutStateRequest:
-
-        """
+    def put_connect_state(self, connection_id: str, proto: Connect.PutStateRequest) -> None:
         response = self.send(
             "PUT",
             "/connect-state/v1/devices/{}".format(self.__session.device_id()),
@@ -150,21 +127,17 @@ class ApiClient(Closeable):
         )
         if response.status_code == 413:
             self.logger.warning(
-                "PUT state payload is too large: {} bytes uncompressed.".
-                format(len(proto.SerializeToString())))
+                "PUT state payload is too large: {} bytes uncompressed.".format(
+                    len(proto.SerializeToString())
+                )
+            )
         elif response.status_code != 200:
-            self.logger.warning("PUT state returned {}. headers: {}".format(
-                response.status_code, response.headers))
+            self.logger.warning(
+                "PUT state returned {}. headers: {}".format(response.status_code, response.headers)
+            )
 
     def get_metadata_4_track(self, track: TrackId) -> Metadata.Track:
-        """
-
-        :param track: TrackId:
-
-        """
-        response = self.send("GET",
-                             "/metadata/4/track/{}".format(track.hex_id()),
-                             None, None)
+        response = self.send("GET", "/metadata/4/track/{}".format(track.hex_id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
         body = response.content
         if body is None:
@@ -174,14 +147,7 @@ class ApiClient(Closeable):
         return proto
 
     def get_metadata_4_episode(self, episode: EpisodeId) -> Metadata.Episode:
-        """
-
-        :param episode: EpisodeId:
-
-        """
-        response = self.send("GET",
-                             "/metadata/4/episode/{}".format(episode.hex_id()),
-                             None, None)
+        response = self.send("GET", "/metadata/4/episode/{}".format(episode.hex_id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
         body = response.content
         if body is None:
@@ -191,16 +157,8 @@ class ApiClient(Closeable):
         return proto
 
     def get_metadata_4_album(self, album: AlbumId) -> Metadata.Album:
-        """
-
-        :param album: AlbumId:
-
-        """
-        response = self.send("GET",
-                             "/metadata/4/album/{}".format(album.hex_id()),
-                             None, None)
+        response = self.send("GET", "/metadata/4/album/{}".format(album.hex_id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
-
         body = response.content
         if body is None:
             raise IOError()
@@ -209,14 +167,7 @@ class ApiClient(Closeable):
         return proto
 
     def get_metadata_4_artist(self, artist: ArtistId) -> Metadata.Artist:
-        """
-
-        :param artist: ArtistId:
-
-        """
-        response = self.send("GET",
-                             "/metadata/4/artist/{}".format(artist.hex_id()),
-                             None, None)
+        response = self.send("GET", "/metadata/4/artist/{}".format(artist.hex_id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
         body = response.content
         if body is None:
@@ -226,14 +177,7 @@ class ApiClient(Closeable):
         return proto
 
     def get_metadata_4_show(self, show: ShowId) -> Metadata.Show:
-        """
-
-        :param show: ShowId:
-
-        """
-        response = self.send("GET",
-                             "/metadata/4/show/{}".format(show.hex_id()), None,
-                             None)
+        response = self.send("GET", "/metadata/4/show/{}".format(show.hex_id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
         body = response.content
         if body is None:
@@ -242,16 +186,8 @@ class ApiClient(Closeable):
         proto.ParseFromString(body)
         return proto
 
-    def get_playlist(self,
-                     _id: PlaylistId) -> Playlist4External.SelectedListContent:
-        """
-
-        :param _id: PlaylistId:
-
-        """
-        response = self.send("GET",
-                             "/playlist/v2/playlist/{}".format(_id.id()), None,
-                             None)
+    def get_playlist(self, _id: PlaylistId) -> Playlist4External.SelectedListContent:
+        response = self.send("GET", "/playlist/v2/playlist/{}".format(_id.id()), None, None)
         ApiClient.StatusCodeException.check_status(response)
         body = response.content
         if body is None:
@@ -261,17 +197,11 @@ class ApiClient(Closeable):
         return proto
 
     def set_client_token(self, client_token):
-        """
-
-        :param client_token:
-
-        """
         self.__client_token_str = client_token
 
     def __client_token(self):
         proto_req = ClientToken.ClientTokenRequest(
-            request_type=ClientToken.ClientTokenRequestType.
-            REQUEST_CLIENT_DATA_REQUEST,
+            request_type=ClientToken.ClientTokenRequestType.REQUEST_CLIENT_DATA_REQUEST,
             client_data=ClientToken.ClientDataRequest(
                 client_id=MercuryRequests.keymaster_client_id,
                 client_version=Version.version_name,
@@ -286,7 +216,8 @@ class ApiClient(Closeable):
                             something7=332,
                             something8=33404,
                             something10=True,
-                        ), ),
+                        ),
+                    ),
                 ),
             ),
         )
@@ -307,7 +238,6 @@ class ApiClient(Closeable):
         return proto_resp
 
     class StatusCodeException(IOError):
-        """ """
         code: int
 
         def __init__(self, response: requests.Response):
@@ -316,11 +246,6 @@ class ApiClient(Closeable):
 
         @staticmethod
         def check_status(response: requests.Response) -> None:
-            """
-
-            :param response: requests.Response:
-
-            """
             if response.status_code != 200:
                 raise ApiClient.StatusCodeException(response)
 
