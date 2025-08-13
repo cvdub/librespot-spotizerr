@@ -56,6 +56,17 @@ from librespot.proto import Keyexchange_pb2 as Keyexchange
 from librespot.proto import Metadata_pb2 as Metadata
 from librespot.proto import Playlist4External_pb2 as Playlist4External
 from librespot.proto.ExplicitContentPubsub_pb2 import UserAttributesUpdate
+try:
+    from librespot.proto.spotify.login5.v3 import Login5_pb2 as Login5
+    from librespot.proto.spotify.login5.v3 import ClientInfo_pb2 as Login5ClientInfo
+    from librespot.proto.spotify.login5.v3.credentials import Credentials_pb2 as Login5Credentials
+    LOGIN5_AVAILABLE = True
+except ImportError as e:
+    # Login5 protobuf files not available, will use fallback
+    LOGIN5_AVAILABLE = False
+    Login5 = None
+    Login5ClientInfo = None
+    Login5Credentials = None
 from librespot.structure import Closeable
 from librespot.structure import MessageListener
 from librespot.structure import RequestListener
@@ -823,6 +834,8 @@ class Session(Closeable, MessageListener, SubListener):
     __stored_str: str = ""
     __token_provider: typing.Union[TokenProvider, None]
     __user_attributes = {}
+    __login5_access_token: typing.Union[str, None] = None
+    __login5_token_expiry: typing.Union[int, None] = None
 
     def __init__(self, inner: Inner, address: str) -> None:
         self.__client = Session.create_client(inner.conf)
@@ -862,6 +875,10 @@ class Session(Closeable, MessageListener, SubListener):
 
         """
         self.__authenticate_partial(credential, False)
+        
+        # Try Login5 authentication for access token
+        self.__authenticate_login5(credential)
+        
         with self.__auth_lock:
             self.__mercury_client = MercuryClient(self)
             self.__token_provider = TokenProvider(self)
@@ -1279,6 +1296,64 @@ class Session(Closeable, MessageListener, SubListener):
     def __send_unchecked(self, cmd: bytes, payload: bytes) -> None:
         self.cipher_pair.send_encoded(self.connection, cmd, payload)
 
+    def __authenticate_login5(self, credential: Authentication.LoginCredentials) -> None:
+        """Authenticate using Login5 to get access token"""
+        if not LOGIN5_AVAILABLE:
+            self.logger.warning("Login5 protobuf files not available, skipping Login5 authentication")
+            return
+            
+        try:
+            # Build Login5 request
+            login5_request = Login5.LoginRequest()
+            
+            # Set client info
+            login5_request.client_info.client_id = "65b708073fc0480ea92a077233ca87bd"
+            login5_request.client_info.device_id = self.__inner.device_id
+            
+            # Set stored credential from APWelcome
+            if hasattr(self, '_Session__ap_welcome') and self.__ap_welcome:
+                stored_cred = Login5Credentials.StoredCredential()
+                stored_cred.username = self.__ap_welcome.canonical_username
+                stored_cred.data = self.__ap_welcome.reusable_auth_credentials
+                login5_request.stored_credential.CopyFrom(stored_cred)
+                
+                # Send Login5 request
+                login5_url = "https://login5.spotify.com/v3/login"
+                headers = {
+                    "Content-Type": "application/x-protobuf",
+                    "Accept": "application/x-protobuf"
+                }
+                
+                response = requests.post(
+                    login5_url,
+                    data=login5_request.SerializeToString(),
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    login5_response = Login5.LoginResponse()
+                    login5_response.ParseFromString(response.content)
+                    
+                    if login5_response.HasField('ok'):
+                        self.__login5_access_token = login5_response.ok.access_token
+                        self.__login5_token_expiry = int(time.time()) + login5_response.ok.access_token_expires_in
+                        self.logger.info("Login5 authentication successful, got access token")
+                    else:
+                        self.logger.warning("Login5 authentication failed: {}".format(login5_response.error))
+                else:
+                    self.logger.warning("Login5 request failed with status: {}".format(response.status_code))
+        except Exception as e:
+            self.logger.warning("Failed to authenticate with Login5: {}".format(e))
+    
+    def get_login5_token(self) -> typing.Union[str, None]:
+        """Get the Login5 access token if available and not expired"""
+        if self.__login5_access_token and self.__login5_token_expiry:
+            if int(time.time()) < self.__login5_token_expiry - 60:  # 60 second buffer
+                return self.__login5_access_token
+            else:
+                self.logger.debug("Login5 token expired, need to re-authenticate")
+        return None
+    
     def __wait_auth_lock(self) -> None:
         if self.__closing and self.connection is None:
             self.logger.debug("Connection was broken while closing.")
@@ -2171,6 +2246,16 @@ class TokenProvider:
         scopes = list(scopes)
         if len(scopes) == 0:
             raise RuntimeError("The token doesn't have any scope")
+        
+        # Try to use Login5 token first
+        login5_token = self._session.get_login5_token()
+        if login5_token:
+            # Create a StoredToken-compatible object using Login5 token
+            login5_stored_token = TokenProvider.Login5StoredToken(login5_token, scopes)
+            self.logger.debug("Using Login5 access token for scopes: {}".format(scopes))
+            return login5_stored_token
+            
+        # Fallback to existing token logic
         token = self.find_token_with_all_scopes(scopes)
         if token is not None:
             if token.expired():
@@ -2180,15 +2265,42 @@ class TokenProvider:
         self.logger.debug(
             "Token expired or not suitable, requesting again. scopes: {}, old_token: {}"
             .format(scopes, token))
-        response = self._session.mercury().send_sync_json(
-            MercuryRequests.request_token(self._session.device_id(),
-                                          ",".join(scopes)))
-        token = TokenProvider.StoredToken(response)
-        self.logger.debug(
-            "Updated token successfully! scopes: {}, new_token: {}".format(
-                scopes, token))
-        self.__tokens.append(token)
-        return token
+        
+        # Try keymaster endpoint as fallback (deprecated)
+        try:
+            response = self._session.mercury().send_sync_json(
+                MercuryRequests.request_token(self._session.device_id(),
+                                              ",".join(scopes)))
+            token = TokenProvider.StoredToken(response)
+            self.logger.debug(
+                "Updated token successfully! scopes: {}, new_token: {}".format(
+                    scopes, token))
+            self.__tokens.append(token)
+            return token
+        except Exception as e:
+            self.logger.warning("Failed to get token from keymaster endpoint: {}".format(e))
+            raise RuntimeError("Unable to obtain access token")
+
+    class Login5StoredToken:
+        """StoredToken-compatible wrapper for Login5 access tokens"""
+        access_token: str
+        scopes: typing.List[str]
+        
+        def __init__(self, access_token: str, scopes: typing.List[str]):
+            self.access_token = access_token
+            self.scopes = scopes
+        
+        def expired(self) -> bool:
+            """Login5 tokens are managed by Session, so delegate expiry check"""
+            return False  # Session handles expiry
+        
+        def has_scope(self, scope: str) -> bool:
+            """Login5 tokens are general-purpose, assume they have all scopes"""
+            return True
+        
+        def has_scopes(self, sc: typing.List[str]) -> bool:
+            """Login5 tokens are general-purpose, assume they have all scopes"""
+            return True
 
     class StoredToken:
         """ """
